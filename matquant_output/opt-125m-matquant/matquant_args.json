@@ -1,0 +1,93 @@
+{
+    "model": "facebook/opt-125m",
+    "model_family": "opt",
+    "cache_dir": "quantize_cache",
+    "output_dir": "./matquant_output/opt-125m-matquant",
+    "save_dir": "./quantized_models/opt-125m-matquant",
+    "mode": "eval",
+    "wbits": 4,
+    "abits": 16,
+    "group_size": 128,
+    "bit_list": [
+        8,
+        4,
+        2
+    ],
+    "lambda_r": [
+        1.0,
+        1.0,
+        1.0
+    ],
+    "let": true,
+    "lwc": true,
+    "ste": false,
+    "aug_loss": false,
+    "epochs": 1,
+    "let_lr": 0.005,
+    "lwc_lr": 0.01,
+    "nsamples": 1,
+    "alpha": 0.5,
+    "batch_size": 1,
+    "real_quant": false,
+    "calib_dataset": "wikitext2",
+    "seed": 0,
+    "resume": null,
+    "act_scales": null,
+    "act_shifts": null,
+    "deactive_amp": false,
+    "eval_ppl": false,
+    "tasks": "",
+    "num_fewshot": 0,
+    "limit": -1,
+    "symmetric": false,
+    "disable_zero_point": false,
+    "a_dynamic_method": "per_token",
+    "w_dynamic_method": "per_channel",
+    "local_rank": 0,
+    "multigpu": false,
+    "use_cuda": false,
+    "per_gpu_memory": 50,
+    "wd": 0,
+    "fp16": false,
+    "attn_implementation": "eager",
+    "net": "opt-125m",
+    "weight_quant_params": {
+        "n_bits": 4,
+        "per_channel_axes": [
+            0
+        ],
+        "symmetric": false,
+        "dynamic_method": "per_channel",
+        "group_size": 128,
+        "lwc": true,
+        "disable_zero_point": false
+    },
+    "act_quant_params": {
+        "n_bits": 16,
+        "per_channel_axes": [],
+        "symmetric": false,
+        "dynamic_method": "per_token"
+    },
+    "q_quant_params": {
+        "n_bits": 16,
+        "per_channel_axes": [],
+        "symmetric": false,
+        "dynamic_method": "per_token"
+    },
+    "k_quant_params": {
+        "n_bits": 16,
+        "per_channel_axes": [],
+        "symmetric": false,
+        "dynamic_method": "per_token"
+    },
+    "v_quant_params": {
+        "n_bits": 16,
+        "per_channel_axes": [],
+        "symmetric": false,
+        "dynamic_method": "per_token"
+    },
+    "p_quant_params": {
+        "n_bits": 16,
+        "metric": "fix0to1"
+    }
+}
