@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/data/beppa/OmniQuant/main_matquant.py", line 1, in <module>
+    import numpy as np
+ModuleNotFoundError: No module named 'numpy'
