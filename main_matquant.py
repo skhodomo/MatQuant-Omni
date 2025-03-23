@@ -21,7 +21,7 @@ from models.int_opt_layer import QuantOPTDecoderLayer
 from quantize.int_linear import QuantLinear
 import copy
 import pdb
-
+import math
 
 torch.backends.cudnn.benchmark = True
 
@@ -51,10 +51,11 @@ net_choices = [
 @torch.no_grad()
 def evaluate(lm, args, logger):
 
+        
     def change_bit_all_layers(lm, bit):
         """
         lm 모델 내 모든 QuantLinear에 대해 비트 슬라이싱 quantization 적용.
-        weight = sliced_int * scale 형태로 다시 반영함.
+        group quantization, padding(deficiency), slicing 모두 지원.
         """
         if "llama" in lm.model.config.model_type.lower() or "mixtral" in lm.model.config.model_type.lower():
             layers = lm.model.model.layers
@@ -76,18 +77,14 @@ def evaluate(lm, args, logger):
                 if isinstance(module, QuantLinear):
                     quantizer = module.weight_quantizer
                     weight_fp = module.weight
+                    dim0, dim1 = weight_fp.shape
+                    group_size = getattr(quantizer, "group_size", None)
+                    pad = getattr(quantizer, "deficiency", 0)
 
+                    # scale / zp (round_zero_point)
                     scale = getattr(quantizer, "scale", getattr(quantizer, "scales", None))
                     zp = getattr(quantizer, "round_zero_point", getattr(quantizer, "zeros", None))
-                    # reshape if group quantization
-                    if hasattr(quantizer, "group_size") and quantizer.group_size:
-                        try:
-                            scale = scale.view_as(weight_fp)
-                            if zp is not None:
-                                zp = zp.view_as(weight_fp)
-                        except Exception as e:
-                            print(f"⚠️ Cannot reshape scale/zp for {name}, skipping. Error: {e}")
-                            continue
+
                     if scale is None:
                         print(f"⚠️ [L{i}] {name} - scale not found, skipping")
                         continue
@@ -95,35 +92,87 @@ def evaluate(lm, args, logger):
                         print(f"⚠️ [L{i}] {name} - zero point not found, skipping")
                         continue
 
-                    if zp is not None:
-                        dequant = (weight_fp / scale) + zp
-                    else:
-                        dequant = weight_fp / scale
-                    weight_int = dequant.round().clamp(quantizer.qmin, quantizer.qmax)
+                    try:
+                        if group_size is not None:
+                            # Group-wise quantization
+                            padded_dim1 = dim1 + pad
+                            num_groups = math.ceil(padded_dim1 / group_size)
 
-                    # bit slicing
-                    if bit == 8:
-                        sliced = weight_int
-                    elif bit == 4:
-                        sliced = bit_slice(weight_int, 4)
-                    elif bit == 2:
-                        sliced = bit_slice(bit_slice(weight_int, 4), 2)
-                    else:
-                        raise ValueError(f"Unsupported bit-width: {bit}")       
+                            scale = scale.view(dim0, num_groups, 1)  # [out, groups, 1]
+                            zp = zp.view(dim0, num_groups, 1) if zp is not None else None
 
-                    if zp is not None:
-                        quantized_weight = (sliced_int - zp) * scale
-                    else:
-                        quantized_weight = sliced_int * scale
-                    # 재양자화
-                    requant = (sliced - zp) * scale if zp is not None else sliced * scale
-                    requant = requant.view_as(weight_fp)
-                    module.weight = requant.to(weight_fp.dtype)
-                    print(f"[✓] Layer {i} - {name}: bit {bit}, dtype: {module.weight.dtype}")
-        
+                            if pad > 0:
+                                weight_fp = torch.cat(
+                                    [weight_fp, torch.zeros((dim0, pad), dtype=weight_fp.dtype, device=weight_fp.device)],
+                                    dim=1
+                                )
+
+                            weight_grouped = weight_fp.view(dim0, num_groups, group_size)
+
+                            # dequantization
+                            dequant = (weight_grouped / scale) + (zp if zp is not None else 0)
+                            weight_int = dequant.round().clamp(quantizer.qmin, quantizer.qmax)
+
+                            # slicing
+                            if bit == 8:
+                                sliced = weight_int
+                            elif bit == 4:
+                                sliced = bit_slice(weight_int, 4)
+                            elif bit == 2:
+                                sliced = bit_slice(bit_slice(weight_int, 4), 2)
+                            else:
+                                raise ValueError(f"Unsupported bit-width: {bit}")
+
+                            requant = (sliced - zp) * scale if zp is not None else sliced * scale
+                            requant = requant.view(dim0, padded_dim1)
+                            if pad > 0:
+                                requant = requant[:, :-pad]
+
+                        else:
+                            # Per-channel quantization
+                            dequant = (weight_fp / scale) + (zp if zp is not None else 0)
+                            weight_int = dequant.round().clamp(quantizer.qmin, quantizer.qmax)
+
+                            if bit == 8:
+                                sliced = weight_int
+                            elif bit == 4:
+                                sliced = bit_slice(weight_int, 4)
+                            elif bit == 2:
+                                sliced = bit_slice(bit_slice(weight_int, 4), 2)
+                            else:
+                                raise ValueError(f"Unsupported bit-width: {bit}")
+
+                            requant = (sliced - zp) * scale if zp is not None else sliced * scale
+
+                        module.weight = requant.to(weight_fp.dtype)
+                        print(f"[✓] Layer {i} - {name}: bit {bit}, dtype: {module.weight.dtype}")
+
+                    except Exception as e:
+                        print(f"❌ Failed at Layer {i} - {name}: {e}")
+                        continue
+            
         
     print("평가 시작")
+    #weight , scale , round_zero_point 출력
+    for name, module in lm.model.model.named_modules():
+        if isinstance(module, QuantLinear):
+            print(f"\n--- {name} ---")
+            print(f"weight dtype: {module.weight.dtype}, shape: {module.weight.shape}")
 
+            if hasattr(module.weight_quantizer, "scale"):
+                print(f"scale (learnable or temp): exists → shape: {module.weight_quantizer.scale.shape}")
+            elif hasattr(module.weight_quantizer, "scales"):
+                print(f"scale (buffer): exists → shape: {module.weight_quantizer.scales.shape}")
+            else:
+                print("scale: ❌ not found")
+
+            if hasattr(module.weight_quantizer, "round_zero_point"):
+                print(f"zero_point (learnable or temp): exists → shape: {module.weight_quantizer.round_zero_point.shape}")
+            elif hasattr(module.weight_quantizer, "zeros"):
+                print(f"zero_point (buffer): exists → shape: {module.weight_quantizer.zeros.shape}")
+            else:
+                print("zero_point: ❌ not found") 
+    results = {}
     if args.multigpu:
         if "opt" in args.net.lower():
             map_layers_to_multi_gpus(lm.model.model.decoder.layers)
