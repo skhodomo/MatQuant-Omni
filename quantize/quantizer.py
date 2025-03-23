@@ -91,7 +91,31 @@ class UniformAffineQuantizer(nn.Module):
             self.qmin = 0
             self.qmax = 2 ** (n_bits) - 1
 
-    def fake_quant(self, x, scale, round_zero_point):
+
+    def fake_quant(self, x, scale, round_zero_point, bit):
+         # ✅ fallback: scale이 없고 buffer에만 있는 경우
+        if scale is None and hasattr(self, "scales"):
+            scale = self.scales
+        if round_zero_point is None and hasattr(self, "zeros"):
+            round_zero_point = self.zeros
+        def bit_slice(qc: torch.Tensor, r: int, c: int = 8):
+            """
+            q^c에서 상위 r비트만 추출하는 Matryoshka bit slicing 연산.
+
+            Args:
+                qc (Tensor): 8bit 양자화된 정수 weight (0 ~ 255)
+                r (int): 타겟 비트 수 (2, 4, etc)
+                c (int): 원래 비트 수 (기본 8)
+            
+            Returns:
+                Tensor: 슬라이스된 정수 weight (0 ~ 2^c - 1 범위)
+            """
+            shift = 2 ** (c - r)
+            sliced = torch.round(qc / shift)       # 상위 r비트 추출
+            sliced = torch.clamp(sliced, 0, 2**r - 1)     # r비트 범위로 자름
+            sliced_q = sliced * shift                    # 다시 원래 스케일로 복원
+            return sliced_q
+
         if self.deficiency > 0:
             pad_zeros = torch.zeros((x.shape[0],self.deficiency),dtype=x.dtype,device=x.device)
             x = torch.cat((x,pad_zeros),dim=1)
@@ -105,30 +129,53 @@ class UniformAffineQuantizer(nn.Module):
             x_int = x_int.add(round_zero_point)
         x_int = x_int.clamp(self.qmin, self.qmax)
         x_dequant = x_int
-        if round_zero_point is not None:
-            x_dequant = x_dequant.sub(round_zero_point)
-        x_dequant = x_dequant.mul(scale)
-        if self.group_size:
-            x_dequant = x_dequant.reshape(dim1, dim2)
-        if self.deficiency > 0:
-            x_dequant = x_dequant[:,:-self.deficiency]
+        
+        if bit==4:
+            x_dequant = bit_slice(x_int,4) 
+            if round_zero_point is not None:
+                x_dequant = x_dequant.sub(round_zero_point)
+            x_dequant = x_dequant.mul(scale)
+            if self.group_size:
+                x_dequant = x_dequant.reshape(dim1, dim2)
+            if self.deficiency > 0:
+                x_dequant = x_dequant[:,:-self.deficiency]
+            return x_dequant
+        if bit==2:
+            x_dequant = bit_slice(x_int,4)
+            x_dequant = bit_slice(x_dequant,2) 
+            if round_zero_point is not None:
+                x_dequant = x_dequant.sub(round_zero_point)
+            x_dequant = x_dequant.mul(scale)
+            if self.group_size:
+                x_dequant = x_dequant.reshape(dim1, dim2)
+            if self.deficiency > 0:
+                x_dequant = x_dequant[:,:-self.deficiency]
+        else:
+            if round_zero_point is not None:
+                x_dequant = x_dequant.sub(round_zero_point)
+            x_dequant = x_dequant.mul(scale)
+            if self.group_size:
+                x_dequant = x_dequant.reshape(dim1, dim2)
+            if self.deficiency > 0:
+                x_dequant = x_dequant[:,:-self.deficiency]
         return x_dequant
-    
+    def forward(self, x: torch.Tensor, bit: int = None):
+        if bit is None:
+            bit = self.n_bits  # fallback to default
 
-    def forward(self, x: torch.Tensor):
-        if self.n_bits >= 16 or not self.enable:
+        if bit >= 16 or not self.enable:
             return x
-        if self.metric == "fix0to1":
-            return x.mul_(2**self.n_bits-1).round_().div_(2**self.n_bits-1)
 
-        if self.dynamic_method == "per_token" or self.dynamic_method == "per_channel":
+        if self.metric == "fix0to1":
+            return x.mul_(2**bit - 1).round_().div_(2**bit - 1)
+
+        if self.dynamic_method in ["per_token", "per_channel"]:
             self.per_token_dynamic_calibration(x)
         else:
-            raise NotImplementedError()   
+            raise NotImplementedError()
 
-        x_dequant = self.fake_quant(x, self.scale, self.round_zero_point)
+        x_dequant = self.fake_quant(x, self.scale, self.round_zero_point, bit)
         return x_dequant
-
     def per_token_dynamic_calibration(self, x):
         if self.group_size:
             if self.deficiency == 0:

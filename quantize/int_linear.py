@@ -42,26 +42,24 @@ class QuantLinear(nn.Module):
 
         self.disable_input_quant = disable_input_quant
         self.use_temporary_parameter = False
+    def forward(self, input, bit=8):  # bit 인자 추가
+        input_dtype = input.dtype
 
-    
-    
-    def forward(self, input: torch.Tensor):
-        if self.use_temporary_parameter:
-            weight = self.temp_weight
-            bias = self.temp_bias
-        elif self.use_weight_quant:
-            weight = self.weight_quantizer(self.weight)
-            bias = self.bias
+        if self.use_temporary_parameter and hasattr(self, "temp_weight"):
+            weight = self.temp_weight.to(input_dtype)
+            bias = self.temp_bias.to(input_dtype) if self.temp_bias is not None else None
         else:
-            weight = self.weight
-            bias = self.bias
+            weight = self.weight.to(input_dtype)
+            bias = self.bias.to(input_dtype) if self.bias is not None else None
 
-        if self.use_act_quant and not self.disable_input_quant:
-            input = self.act_quantizer(input)
-        
+        # 🔥 여기서 비트 슬라이싱을 적용
+        if self.use_weight_quant:
+            weight = self.weight_quantizer.fake_quant(weight, self.weight_quantizer.scale, self.weight_quantizer.round_zero_point, bit=bit)
+
+        if self.use_act_quant and self.act_quantizer is not None:
+            input = self.act_quantizer(input,16)
+
         out = self.fwd_func(input, weight, bias, **self.fwd_kwargs)
-
-
         return out
 
     def set_quant_state(self, weight_quant: bool = False, act_quant: bool = False):

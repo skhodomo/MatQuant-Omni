@@ -125,6 +125,7 @@ def evaluate(lm, args, logger):
                 elif "falcon" in args.model:
                     outputs = lm.model.transformer(batch)
                 hidden_states = outputs[0]
+
                 logits = lm.model.lm_head(hidden_states)
                 shift_logits = logits[:, :-1, :]
                 shift_labels = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)][
@@ -271,7 +272,7 @@ def main():
     
 
     args.weight_quant_params = {
-        "n_bits": args.wbits,
+        "n_bits": args.wbits, # 여기!
         "per_channel_axes": [0],
         "symmetric": args.symmetric,
         "dynamic_method": args.w_dynamic_method,

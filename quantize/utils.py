@@ -35,7 +35,6 @@ def omni_state_dict(model, destination=None, prefix='', keep_vars=False):
         if name.find('smooth') > -1 or name.find('bound_factor') > -1:
             destination[prefix + name] = param if keep_vars else param.detach()
     return destination
-
 def register_scales_and_zeros(model):
     for name, module in model.named_modules():
         if isinstance(module, QuantLinear):
@@ -59,7 +58,7 @@ def truncate_number(number, threshold=1e-2):
     # avoid overflow with AMP training
     return TruncateFunction.apply(number, threshold)     
 
-def smooth_and_quant_temporary(model, args, isllama):
+def smooth_and_quant_temporary(model, args, isllama, bit):
     if args.let:
         with torch.no_grad():
             for name, module in model.named_parameters():
@@ -93,9 +92,9 @@ def smooth_and_quant_temporary(model, args, isllama):
     for name, module in model.named_modules():
         if isinstance(module, QuantLinear):
             if hasattr(module, "temp_weight"):
-                module.temp_weight = module.weight_quantizer(module.temp_weight)
+                module.temp_weight = module.weight_quantizer(module.temp_weight, bit)
             else:
-                module.temp_weight = module.weight_quantizer(module.weight)
+                module.temp_weight = module.weight_quantizer(module.weight, bit)
             if not hasattr(module, "temp_bias"):
                 module.temp_bias = module.bias
             module.use_temporary_parameter=True
@@ -142,3 +141,15 @@ def set_quant_state(self, weight_quant: bool = False, act_quant: bool = False):
     for m in self.modules():
         if isinstance(m, (QuantLinear, QuantMatMul)):
             m.set_quant_state(weight_quant, act_quant)
+
+
+
+def change_n_bits(model, original_n_bits=8, new_n_bits=4):
+    """
+    모델의 모든 양자화 모듈에 대한 비트 수를 변경합니다.
+    """
+    for name, module in model.named_modules():
+        if hasattr(module, "weight_quantizer") and hasattr(module.weight_quantizer, "change_n_bits"):
+            module.weight_quantizer.change_n_bits(new_n_bits)
+        if hasattr(module, "act_quantizer") and hasattr(module.act_quantizer, "change_n_bits"):
+            module.act_quantizer.change_n_bits(new_n_bits)

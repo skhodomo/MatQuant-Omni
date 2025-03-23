@@ -182,32 +182,6 @@ class Matryoshka_QuantLinear(nn.Module):
             del self.temp_bias
         self.use_temporary_parameter = False
         
-# =============================================================================
-class Matryoshka_Quant_Loss(nn.Module):
-    """
-    다중 비트 손실 함수:
-    - 각 비트 폭에 대해 별도로 손실 계산
-    - 가중치 lambda_r을 사용하여 집계
-    """
-    def __init__(self, loss_func=nn.MSELoss(), lambda_r=None, bit_list: List[int] = [8, 4, 2]):
-        super().__init__()
-        self.loss_func = loss_func
-        self.lambda_r = lambda_r if lambda_r else [1.0] * len(bit_list)
-        assert len(self.lambda_r) == len(bit_list), "가중치와 비트 목록의 길이가 일치해야 합니다"
-        
-    def forward(self, quant_outputs, full_precision_output):
-        """
-        전방 통과 - 여러 비트 폭에 대한 손실 계산 및 집계
-        quant_outputs: 리스트, 각 원소는 (batch, ...) 형태의 출력 (비트별)
-        full_precision_output: 기준 출력 (full precision)
-        """
-        total_loss = 0.0
-        for i, quant_out in enumerate(quant_outputs):
-            loss = self.loss_func(quant_out, full_precision_output)
-            total_loss += self.lambda_r[i] * loss
-            print(f"loss for bit index {i}: {loss}")
-            print("================================================")
-        return total_loss 
 
 # 유틸리티 함수 추가
 def move_all_norm_layers_to_device(model, device):

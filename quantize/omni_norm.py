@@ -30,9 +30,18 @@ class OmniLayerNorm(nn.Module):
         else:
             weight = self.weight
             bias = self.bias
-        out = self.norm_func(x,self.normalized_shape,weight, bias,eps=self.eps)
-        return out
 
+        # ⚠️ 중요: device와 dtype 모두 맞춰야 함
+        device = x.device
+        dtype = x.dtype
+
+        if weight is not None:
+            weight = weight.to(device=device, dtype=dtype)
+        if bias is not None:
+            bias = bias.to(device=device, dtype=dtype)
+
+        out = self.norm_func(x, self.normalized_shape, weight, bias, eps=self.eps)
+        return out
     def set_quant_state(self, use_weight_quant, use_act_quant):
         self.use_act_quant = use_act_quant
 
@@ -51,14 +60,17 @@ class OmniLlamaRMSNorm(nn.Module):
 
     def forward(self, hidden_states):
         input_dtype = hidden_states.dtype
+        device = hidden_states.device
+        
         variance = hidden_states.to(torch.float32).pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        
         if self.use_temporary_parameter:
-            weight = self.temp_weight
-            bias = self.temp_bias
+            weight = self.temp_weight.to(device)
+            bias = self.temp_bias.to(device) if hasattr(self, 'temp_bias') else None
         else:
-            weight = self.weight
-            bias = self.bias if hasattr(self, 'bias') else None
+            weight = self.weight.to(device)
+            bias = self.bias.to(device) if hasattr(self, 'bias') else None
 
-        return (weight * hidden_states+bias).to(input_dtype) if bias is not None else (weight * hidden_states).to(input_dtype)
+        return (weight * hidden_states + bias).to(input_dtype) if bias is not None else (weight * hidden_states).to(input_dtype)
 

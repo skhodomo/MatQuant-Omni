@@ -47,6 +47,7 @@ class QuantOPTAttention(nn.Module):
             org_module.k_proj,
             args.weight_quant_params,
             args.act_quant_params,
+
         )
         self.v_proj = QuantLinear(
             org_module.v_proj,
@@ -274,7 +275,10 @@ class QuantOPTDecoderLayer(nn.Module):
         self.out_smooth_scale = nn.Parameter(torch.ones(1)) if self.let else None
         self.out_smooth_shift = nn.Parameter(torch.zeros(self.embed_dim)) if self.let else None
         self.qkt_smooth_scale = nn.Parameter(torch.ones(1)) if self.let else None
-
+        
+        # 중요: 기존 레이어의 데이터 타입 저장
+        self.dtype = ori_layer.fc1.weight.dtype
+    
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -301,12 +305,18 @@ class QuantOPTDecoderLayer(nn.Module):
             past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
         """
 
+        # 입력의 dtype을 확인하여 내부 계산에 사용할 dtype 결정
+        input_dtype = hidden_states.dtype
+        
+        # 모든 텐서가 동일한 타입을 사용하도록 함
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(input_dtype)
+        
         # Self Attention
 
         residual = hidden_states
         if self.do_layer_norm_before:
             hidden_states = self.self_attn_layer_norm(hidden_states)
-        # hidden_states = self.self_attn_layer_norm(hidden_states.float()).to(self.type)
 
         hidden_states, self_attn_weights, present_key_value = self.self_attn(
             hidden_states=hidden_states,
@@ -345,10 +355,11 @@ class QuantOPTDecoderLayer(nn.Module):
         if not self.do_layer_norm_before:
             hidden_states = self.final_layer_norm(hidden_states)
 
-        outputs = (hidden_states,)
+        # 최종 출력도 일관된 타입으로 변환
+        outputs = (hidden_states.to(input_dtype),)
 
         if output_attentions:
-            outputs += (self_attn_weights,)
+            outputs += (self_attn_weights.to(input_dtype),)
 
         if use_cache:
             outputs += (present_key_value,)
@@ -422,6 +433,15 @@ class QuantOPTDecoderLayer(nn.Module):
                     module.temp_bias = module.bias
                 module.use_temporary_parameter=True
 
+    def change_n_bits(self, new_n_bits):
+        """
+        레이어의 모든 양자화 모듈에 대한 비트 수를 변경합니다.
+        """
+        for name, module in self.named_modules():
+            if hasattr(module, "weight_quantizer") and hasattr(module.weight_quantizer, "change_n_bits"):
+                module.weight_quantizer.change_n_bits(new_n_bits)
+            if hasattr(module, "act_quantizer") and hasattr(module.act_quantizer, "change_n_bits"):
+                module.act_quantizer.change_n_bits(new_n_bits)
 
     def let_parameters(self, use_shift=True):
         params = []
@@ -458,5 +478,4 @@ class QuantOPTDecoderLayer(nn.Module):
     def register_scales_and_zeros(self):
         for name, module in self.named_modules():
             if isinstance(module, QuantLinear):
-                module.weight_quantizer.register_scales_and_zeros()
-    
+                module.weight_quantizer.register_scales_and_zeros()    
