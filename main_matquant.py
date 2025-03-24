@@ -119,7 +119,7 @@ def evaluate(lm, args, logger):
                             elif bit == 4:
                                 sliced = bit_slice(weight_int, 4)
                             elif bit == 2:
-                                sliced = bit_slice(bit_slice(weight_int, 4), 2)
+                                sliced = bit_slice(weight_int, 2)
                             else:
                                 raise ValueError(f"Unsupported bit-width: {bit}")
 
@@ -138,7 +138,7 @@ def evaluate(lm, args, logger):
                             elif bit == 4:
                                 sliced = bit_slice(weight_int, 4)
                             elif bit == 2:
-                                sliced = bit_slice(bit_slice(weight_int, 4), 2)
+                                sliced = bit_slice(weight_int 2)
                             else:
                                 raise ValueError(f"Unsupported bit-width: {bit}")
 
@@ -367,7 +367,7 @@ def main():
     parser.add_argument("--group_size", type=int, default=None)
     parser.add_argument("--alpha", type=float, default=0.5)
     parser.add_argument("--let_lr", type=float, default=1e-3)
-    parser.add_argument("--lwc_lr", type=float, default=1e-3)
+    parser.add_argument("--lwc_lr", type=float, default=1e-2)
     parser.add_argument("--wd", type=float, default=0)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--let",default=False, action="store_true",help="activate learnable equivalent transformation")

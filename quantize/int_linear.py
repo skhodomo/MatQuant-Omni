@@ -52,10 +52,18 @@ class QuantLinear(nn.Module):
             weight = self.weight.to(input_dtype)
             bias = self.bias.to(input_dtype) if self.bias is not None else None
 
-        # 🔥 여기서 비트 슬라이싱을 적용
+       
         if self.use_weight_quant:
-            weight = self.weight_quantizer.fake_quant(weight, self.weight_quantizer.scale, self.weight_quantizer.round_zero_point, bit=bit)
+            quantizer = self.weight_quantizer
 
+            # 🛡️ 안전하게 scale / zero point 가져오기
+            scale = getattr(quantizer, "scale", getattr(quantizer, "scales", None))
+            zp = getattr(quantizer, "round_zero_point", getattr(quantizer, "zeros", None))
+
+            if scale is None:
+                raise ValueError("Quantizer has no scale or scales buffer!")
+            
+            weight = quantizer.fake_quant(weight, scale, zp, bit=bit)
         if self.use_act_quant and self.act_quantizer is not None:
             input = self.act_quantizer(input,16)
 

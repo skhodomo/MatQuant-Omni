@@ -256,8 +256,7 @@ def omniquant(
                     # obtain output of quantization model
                     with traincast():
                         loss = 0
-                        bit_weights = [0.2, 0.2, 1.0]  # 필요 시 가중치 설정 가능
-
+                        bit_weights = [0.1, 0.1, 1.0]  # 필요 시 가중치 설정 가능
                        
                         for bit, weight in zip([8, 4, 2], bit_weights):
                             set_quant_state(qlayer, weight_quant=True, act_quant=True)
