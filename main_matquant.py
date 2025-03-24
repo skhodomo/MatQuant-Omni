@@ -352,12 +352,12 @@ def main():
     parser.add_argument("--save_dir", default=None, type=str, help="direction for saving fake quantization model")
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--real_quant", default=False, action="store_true", help="real quantization, which can see memory reduce. Note that due to the limitations of AutoGPTQ kernels, the real quantization of weight-only quantization can only lead memory reduction, but with slower inference speed.")
-    parser.add_argument("--calib_dataset",type=str,default="wikitext2",
+    parser.add_argument("--calib_dataset",type=str,default="c4",
         choices=["wikitext2", "ptb", "c4", "mix","pile"],
         help="Where to extract calibration data from.",
     )
     parser.add_argument("--nsamples", type=int, default=128, help="Number of calibration data samples.")
-    parser.add_argument("--batch_size", type=int, default=1, help="batch size.")
+    parser.add_argument("--batch_size", type=int, default=4, help="batch size.")
     parser.add_argument("--seed", type=int, default=2, help="Seed for sampling the calibration data.")
     parser.add_argument("--tasks", default="")
     parser.add_argument("--eval_ppl", action="store_true")
@@ -366,8 +366,8 @@ def main():
     parser.add_argument("--abits", type=int, default=16)
     parser.add_argument("--group_size", type=int, default=None)
     parser.add_argument("--alpha", type=float, default=0.5)
-    parser.add_argument("--let_lr", type=float, default=5e-3)
-    parser.add_argument("--lwc_lr", type=float, default=1e-2)
+    parser.add_argument("--let_lr", type=float, default=1e-3)
+    parser.add_argument("--lwc_lr", type=float, default=1e-3)
     parser.add_argument("--wd", type=float, default=0)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--let",default=False, action="store_true",help="activate learnable equivalent transformation")
