@@ -14,6 +14,8 @@ import gc
 from quantize.utils import let_parameters, lwc_parameters, get_omni_parameters,\
                             omni_state_dict, register_scales_and_zeros,smooth_and_quant_temporary,\
                             smooth_and_quant_inplace,clear_temp_variable,set_quant_state
+import torch.utils.checkpoint as cp
+
 try:
     import auto_gptq.nn_modules.qlinear.qlinear_cuda as qlinear_cuda
     import auto_gptq.nn_modules.qlinear.qlinear_triton as qlinear_triton
@@ -240,6 +242,24 @@ def omniquant(
             qlayer.load_state_dict(omni_parameters[i], strict=False)
         
 
+        # ⬇️ Checkpoint에서 쓸 forward 함수는 tensor만 인자로 받아야 해!
+        def forward_loss_for_bit(bit_tensor):
+            bit = bit_tensor.item()  # int로 꺼내기
+            set_quant_state(qlayer, weight_quant=True, act_quant=True)
+            smooth_and_quant_temporary(qlayer, args, is_llama, bit)
+            
+            quant_out = qlayer(
+                quant_inps[index:index+args.batch_size],
+                attention_mask=attention_mask_batch,
+                position_ids=position_ids,
+                bit=bit
+            )[0]
+
+            bit_loss = loss_func(fp_inps[index:index+args.batch_size], quant_out)
+            if args.aug_loss:
+                bit_loss += loss_func(fp_inps_2[index:index+args.batch_size], quant_out)
+            return bit_loss
+
         if args.epochs > 0:
             with torch.no_grad():
                 qlayer.float()      # required for AMP training
@@ -255,22 +275,13 @@ def omniquant(
                     index = j * args.batch_size
                     # obtain output of quantization model
                     with traincast():
+                       # ⬇️ 이 부분이 메모리 부담이 큰 곳 — checkpoint를 적용!
                         loss = 0
-                        bit_weights = [0.1, 0.1, 1.0]  # 필요 시 가중치 설정 가능
-                       
+                        bit_weights = [0.1, 0.1, 1.0]
+
                         for bit, weight in zip([8, 4, 2], bit_weights):
-                            set_quant_state(qlayer, weight_quant=True, act_quant=True)
-                            smooth_and_quant_temporary(qlayer, args, is_llama, bit)
-                            # 👉 forward에 bit 전달
-                            quant_out = qlayer(
-                                quant_inps[index:index+args.batch_size],
-                                attention_mask=attention_mask_batch,
-                                position_ids=position_ids,
-                                bit=bit  # 핵심!
-                            )[0]
-                            bit_loss = loss_func(fp_inps[index:index+args.batch_size], quant_out)
-                            if args.aug_loss:
-                                bit_loss += loss_func(fp_inps_2[index:index+args.batch_size], quant_out)
+                            bit_tensor = torch.tensor(bit, dtype=torch.float32, requires_grad=True).to(quant_inps.device)
+                            bit_loss = cp.checkpoint(forward_loss_for_bit, bit_tensor)
                             loss += weight * bit_loss
                     if not math.isfinite(loss.item()):
                         logger.info("Loss is NAN, stopping training")

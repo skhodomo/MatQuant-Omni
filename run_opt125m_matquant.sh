@@ -10,12 +10,12 @@ python main_matquant.py \
   --model facebook/opt-125m \
   --abits 16 \
   --group_size 128 \
-  --bit_list 8 4 2 \
-  --lambda_r 0 1.0 0 \
+  --bit_list 8,4,2 \
   --let \
   --lwc \
-  --mode quant \
   --epochs 1 \
   --nsamples 128 \
   --batch_size 4 \
   --output_dir ./matquant_output/opt-125m-matquant 
+  ##   --lambda_r 0,1.0,0 \
+  #--mode quant \

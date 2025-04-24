@@ -138,7 +138,7 @@ def evaluate(lm, args, logger):
                             elif bit == 4:
                                 sliced = bit_slice(weight_int, 4)
                             elif bit == 2:
-                                sliced = bit_slice(weight_int 2)
+                                sliced = bit_slice(weight_int, 2)
                             else:
                                 raise ValueError(f"Unsupported bit-width: {bit}")
 
